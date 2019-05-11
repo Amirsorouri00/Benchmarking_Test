@@ -9,25 +9,24 @@
 ssize_t vmsplice_transfer(int pipe_out, char* data, size_t length);
 
 int main(int argc, char *argv[]) {
-    struct iovec local; 
-    int fd2 = open("../../random-files/20m-files/file.txt", O_RDONLY);
-    char buf[1000]; 
+    struct iovec local;
+    // int fd2 = open("../../random-files/20m-files/file.txt", O_RDONLY);
+    char buf[2048]; 
 
-    unsigned long nr_segs = 500;
+    unsigned long nr_segs = 2048;
 
     local.iov_base = buf;//(void *)0x10000; 
-    local.iov_len = 500;
-
-    mkfifo("/tmp/myfifo", S_IRWXU);
+    local.iov_len = 2048;
 
     // ssize_t nread = vmsplice(fd2, &local, nr_segs, SPLICE_F_MORE);
-    ssize_t nread = vmsplice_transfer(&local, fd2, nr_segs);
-
+    ssize_t nread = vmsplice_transfer(STDIN_FILENO, buf, nr_segs);
+    printf("%d\n", (int)nread);
     if (-1 == nread) {
         printf("errno = %d\n", errno);
         perror("vmsplice");
         return 1;
     }
+    printf("%s", buf);
     return 0;
 }
 
@@ -37,7 +36,7 @@ int main(int argc, char *argv[]) {
 ssize_t vmsplice_transfer(int pipe_out, char* data, size_t length)
 {
     ssize_t offset = 0;
-    while (offset < length) {
+    while (offset < 5) {
         struct iovec iov = { data + offset, length - offset };
         offset += vmsplice(pipe_out, &iov, 1, SPLICE_F_GIFT);
         if (offset == -1)
