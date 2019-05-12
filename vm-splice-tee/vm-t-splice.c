@@ -17,36 +17,26 @@ int filelen = 2048;
 
 ssize_t vmsplice_transfer(int pipe_out, char* data, size_t length, int flag);
 ssize_t splice_transfer(int fd_in, loff_t *off_in, int fd_out,
-                      loff_t *off_out, size_t len, unsigned int flags);
+                            loff_t *off_out, size_t len, unsigned int flags);
 long tee_cpy(int fd_in, int fd_out, int len, int flag);
-
 
 
 int main (int argc, int *argv[]){
     int pip[2];
     int childpid[2] = {};
-    unsigned char *b1, *b2;
+    unsigned char *b1;
     b1 = ALIGN(malloc(SPLICE_SIZE + align_mask));
 
     if (pipe(pip) < 0)
         exit(1);
 
     if((childpid[0] = fork()) == -1)
-    {
         perror("fork-1");
         exit(1);
-    }
-
-    /**
-     *  #Child-1
-     *  Splice() and Tee() workout together in this section
-     */
-    if(childpid[0] == 0)
+    
+    if(childpid[0] == 0)    //  #Child-1, Splice() and Tee() workout together in this section
     {
-        // Child process closes up input side of pipe 
-        close(pip[0]);
-        
-        /* Send "string" through the output side of pipe */
+        close(pip[0]);        
         long counter = tee_cpy(STDIN_FILENO, pip[1], 2048, SPLICE_F_NONBLOCK);
         exit(0);
     }
@@ -54,24 +44,13 @@ int main (int argc, int *argv[]){
     {
         /* Parent process closes up output side of pipe */
         if((childpid[1] = fork()) == -1)
-        {
             perror("fork-2");
             exit(1);
-        }
-
-        /**
-         *  #Child-2
-         *  Vmsplice() works in this section
-         */
-        if(childpid[1] == 0)
+                 
+        if(childpid[1] == 0)   // #Child-2, Vmsplice() works in this section
         {
-            // Child process closes up input side of pipe 
             close(pip[1]);
-            struct iovec local[1];
-            local[0].iov_base = b1;//(void *)0x10000; 
-            local[0].iov_len = SPLICE_SIZE;
-            /* Send "string" through the output side of pipe */
-            vmsplice_transfer(pip[1], local, SPLICE_SIZE, SPLICE_F_GIFT);
+            vmsplice_transfer(pip[1], b1, SPLICE_SIZE, SPLICE_F_GIFT);
             exit(0);
         }
         else{
@@ -127,7 +106,8 @@ ssize_t vmsplice_transfer(int pipe_out, char* b1, size_t len, int flag)
 	return written;
 }
 
-ssize_t splice_transfer(int fd_in, loff_t *off_in, int fd_out, loff_t *off_out, size_t len, unsigned int flags)
+ssize_t splice_transfer(int fd_in, loff_t *off_in, int fd_out,
+                         loff_t *off_out, size_t len, unsigned int flags)
 {
     size_t nread;
     while(len > 0){
@@ -146,7 +126,6 @@ long tee_cpy(int fd_in, int fd_out, int filelen, int flag)
     long cnt = 0;
 
     do{
-        // tee stdin to stdout 
         int len = tee(fd_in, fd_out, filelen, flag);
         if (len < 0){
             if(errno == EAGAIN)
