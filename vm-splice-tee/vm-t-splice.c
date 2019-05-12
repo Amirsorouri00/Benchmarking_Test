@@ -12,13 +12,13 @@
 #define ALIGN(buf)	(void *) (((unsigned long) (buf) + align_mask) & ~align_mask)
 
 static int align_mask = 65535;
-// int filelen = 2048;
+int filelen = 2048;
 
 
-ssize_t vmsplice_transfer(int pipe_out, char* data, size_t length);
+ssize_t vmsplice_transfer(int pipe_out, char* data, size_t length, int flag);
 ssize_t splice_transfer(int fd_in, loff_t *off_in, int fd_out,
                       loff_t *off_out, size_t len, unsigned int flags);
-ssize_t tee_cpy(int fd_in, int fd_out, int len, int flag);
+long tee_cpy(int fd_in, int fd_out, int len, int flag);
 
 
 
@@ -27,7 +27,6 @@ int main (int argc, int *argv[]){
     int childpid[2] = {};
     unsigned char *b1, *b2;
     b1 = ALIGN(malloc(SPLICE_SIZE + align_mask));
-    // b2 = ALIGN(malloc(SPLICE_SIZE + align_mask));
 
     if (pipe(pip) < 0)
         exit(1);
@@ -38,17 +37,17 @@ int main (int argc, int *argv[]){
         exit(1);
     }
 
+    /**
+     *  #Child-1
+     *  Splice() and Tee() workout together in this section
+     */
     if(childpid[0] == 0)
     {
-        /**
-         *  #Child-1
-         *  Child process closes up input side of pipe 
-         *  Splice() and Tee() workout together in this section
-         */
+        // Child process closes up input side of pipe 
         close(pip[0]);
-
+        
         /* Send "string" through the output side of pipe */
-        write(pip[1], 'string', (strlen('string')+1));
+        long counter = tee_cpy(STDIN_FILENO, pip[1], 2048, SPLICE_F_NONBLOCK);
         exit(0);
     }
     else
@@ -59,33 +58,28 @@ int main (int argc, int *argv[]){
             perror("fork-2");
             exit(1);
         }
+
+        /**
+         *  #Child-2
+         *  Vmsplice() works in this section
+         */
         if(childpid[1] == 0)
         {
-            /**
-             *  #Child-2
-             *  Child process closes up input side of pipe 
-             *  Vmsplice() works in this section
-             */
-            
+            // Child process closes up input side of pipe 
             close(pip[1]);
-
+            struct iovec local[1];
+            local[0].iov_base = b1;//(void *)0x10000; 
+            local[0].iov_len = SPLICE_SIZE;
             /* Send "string" through the output side of pipe */
-            write(pip[0], 'string', (strlen('string')+1));
+            vmsplice_transfer(pip[1], local, SPLICE_SIZE, SPLICE_F_GIFT);
             exit(0);
         }
         else{
             close(pip[1]);
             close(pip[0]);
-
-            /* Read in a string from the pipe */
-            // int nbytes = read(pip[0], 'readbuffer', sizeof('readbuffer'));
-            // printf("Received string: %s", 'readbuffer');
-            exit(0);
+            // exit(0);
         }
-        
     }
-
-
     return 0;
 }
 
@@ -93,7 +87,7 @@ int main (int argc, int *argv[]){
  * data is aligned to page boundaries,
  * and length is a multiple of the page size
  */ 
-ssize_t vmsplice_transfer(int pipe_out, char* b1, size_t len)
+ssize_t vmsplice_transfer(int pipe_out, char* b1, size_t len, int flag)
 {
     struct pollfd pfd = { .fd = pipe_out, .events = POLLOUT, };
 	struct iovec iov[] = {
@@ -105,15 +99,14 @@ ssize_t vmsplice_transfer(int pipe_out, char* b1, size_t len)
 	int written, idx = 0;
 
 	while (len) {
-		/*
-		 * In a real app you'd be more clever with poll of course,
-		 * here we are basically just blocking on output room and
-		 * not using the free time for anything interesting.
-		 */
+		
+		// In a real app you'd be more clever with poll of course,
+		// here we are basically just blocking on output room and
+		// not using the free time for anything interesting.
 		if (poll(&pfd, 1, -1) < 0)
 			return error("poll");
 
-		written = vmsplice(pipe_out, &iov[idx], 2 - idx, SPLICE_F_GIFT);
+		written = vmsplice(pipe_out, &iov[idx], 2 - idx, flag);
 
 		if (written <= 0)
 			return error("vmsplice");
@@ -136,41 +129,39 @@ ssize_t vmsplice_transfer(int pipe_out, char* b1, size_t len)
 
 ssize_t splice_transfer(int fd_in, loff_t *off_in, int fd_out, loff_t *off_out, size_t len, unsigned int flags)
 {
-    int nread = splice(fd_in, NULL, fd_out,
-            NULL, len, SPLICE_F_MOVE);
-
-    if (-1 == nread) {
-        printf("errno = %d\n", errno);
-        perror("splice");
-        exit(EXIT_FAILURE);
+    size_t nread;
+    while(len > 0){
+        nread = splice(fd_in, off_in, fd_out, off_out, len , SPLICE_F_MOVE);
+        if (nread < 0){
+            perror("splice");
+            break;
+        }
+        len -= nread;
     }
-    return 1;
+    return (ssize_t)nread;
 }
                       
-
-
-ssize_t tee_cpy(int fd_in, int fd_out, int filelen, int flag)
+long tee_cpy(int fd_in, int fd_out, int filelen, int flag)
 {
-    unsigned long cnt = 0;
-    // do{
-    /* 
-     * tee stdin to stdout
-     */
-    int len = tee(STDIN_FILENO, STDOUT_FILENO, filelen, SPLICE_F_NONBLOCK);
-    filelen -= len;
-    if (len < 0){
-        // printf("%d", len);
-        // if(errno == EAGAIN)
-        //     continue;
-        perror("tee");
-        exit(EXIT_FAILURE);
-    }
-    else{
-        if(filelen == 0 || len == 0)
-            return len;
-            // break; 
-        cnt += len;
-        printf("\n%ld\n", cnt);
-    }
-    // } while (1);
+    long cnt = 0;
+
+    do{
+        // tee stdin to stdout 
+        int len = tee(fd_in, fd_out, filelen, flag);
+        if (len < 0){
+            if(errno == EAGAIN)
+                continue;
+            perror("tee");
+            exit(EXIT_FAILURE);
+        }
+        else{
+            if(len == 0)
+                break;
+            // Consume stdin by splicing it to a file. 
+            cnt += splice_transfer(fd_in, NULL, fd_out, NULL, len, SPLICE_F_MOVE);
+        }
+        
+    } while (1);
+
+    return cnt;
 }
