@@ -51,6 +51,7 @@ int main (int argc, int *argv[]){
         {
             close(pip[1]);
             vmsplice_transfer(pip[1], b1, SPLICE_SIZE, SPLICE_F_GIFT);
+            printf("%s", b1);
             exit(0);
         }
         else{
@@ -83,12 +84,14 @@ ssize_t vmsplice_transfer(int pipe_out, char* b1, size_t len, int flag)
 		// here we are basically just blocking on output room and
 		// not using the free time for anything interesting.
 		if (poll(&pfd, 1, -1) < 0)
-			return error("poll");
+			perror("poll");
+            exit(0);
 
 		written = vmsplice(pipe_out, &iov[idx], 2 - idx, flag);
 
 		if (written <= 0)
-			return error("vmsplice");
+			perror("vmsplice");
+            exit(0); 
 
 		len -= written;
 		if ((size_t) written >= iov[idx].iov_len) {
