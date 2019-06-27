@@ -1,0 +1,24 @@
+https://pyamsoft.github.io/pstate-frequency/
+
+pstate-frequency -S -g powersave
+pstate-frequency -G
+pstate-frequency -G -r
+pstate-frequency -S -g performance
+
+
+------------------------------------
+
+https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux_for_real_time/7/html/reference_guide/chap-timestamping
+cat /sys/devices/system/clocksource/clocksource0/available_clocksource
+cat /sys/devices/system/clocksource/clocksource0/current_clocksource
+
+------------------------------------
+
+https://www.maketecheasier.com/check-linux-meltdown-spectre-vulnerability/
+https://www.phoronix.com/scan.php?page=news_item&px=Disable-V2-KPTI-For-In-Order-HW
+
+
+-----------------------------------
+https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html
+
+
